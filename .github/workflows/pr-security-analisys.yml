@@ -1,0 +1,72 @@
+name: PR Security Analysis
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: pr-analysis-${{ github.event.pull_request.head.sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Static & Dependency Analysis
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.draft == false }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      # Optional: compilar y ejecutar tests para asegurar calidad básica del PR
+      - name: Build (no tests)
+        run: mvn -B -DskipTests clean package
+
+      - name: Run unit tests
+        run: mvn -B test
+
+      # SCA - OWASP Dependency-Check
+      - name: Dependency Check (SCA)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'SpringBoot Secure Lab'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload Dependency-Check reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            dependency-check-report.html
+            dependency-check-report.xml
+            odc*.json
+          if-no-files-found: ignore
+
+      # SAST - CodeQL
+      - name: CodeQL Init
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      # Para CodeQL, aseguramos un build después del init (sin tests para ir rápido)
+      - name: Build for CodeQL DB
+        run: mvn -B -DskipTests clean package
+
+      - name: CodeQL Analyze
+        uses: github/codeql-action/analyze@v3
