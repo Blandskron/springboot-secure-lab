@@ -1,0 +1,86 @@
+name: Java CI/CD Secure Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Requerido por CodeQL y buenas prácticas
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-security:
+    name: Build, Test & Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      # Build + tests
+      - name: Build with Maven
+        run: mvn -B clean package
+
+      - name: Run tests
+        run: mvn -B test
+
+      # SCA - OWASP Dependency-Check
+      - name: Dependency Check (SCA)
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'SpringBoot Secure Lab'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+
+      - name: Upload Dependency-Check reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: |
+            dependency-check-report.html
+            dependency-check-report.xml
+            odc*.json
+          if-no-files-found: ignore
+
+      # SAST - CodeQL
+      - name: CodeQL Init
+        uses: github/codeql-action/init@v3
+        with:
+          languages: java
+
+      - name: CodeQL Analyze
+        uses: github/codeql-action/analyze@v3
+
+  deploy:
+    name: Deploy to Render (API)
+    needs: build-test-security
+    runs-on: ubuntu-latest
+    # Solo desplegar en pushes a main (no en PRs) y si el CI pasó
+    if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+    steps:
+      - name: Trigger Render Deploy
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"serviceId":"'"${{ secrets.RENDER_SERVICE_ID }}"'"}' \
+            https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys
