@@ -58,8 +58,3 @@ src/
      └─ java/com/example/demo/HelloControllerTest.java
 pom.xml
 ```
-
-## Notas
-
-* Si usas perfiles/variables, añádelas en `application.properties` o vía `-Dspring-...`/`--spring-...`.
-* Swagger UI se habilita con la dependencia de **springdoc-openapi**.
